@@ -8,6 +8,12 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js';
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.1/proj4.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.1.5"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="styles.css">
     <style>
@@ -168,6 +174,7 @@
     <div class="sidebar" id="sidebar">
         <h2 class="sidebar-title">Satellite Tools</h2>
         <button class="toggle-btn" onclick="toggleSidebar()">➤</button>
+        
         <button id="load-existing" class="sidebar-btn" aria-label="Load Existing Images">
             <i class="fas fa-images"></i>
             <span class="btn-text">Load Existing Images</span>
@@ -192,7 +199,13 @@
             <i class="fas fa-download"></i>
             <span class="btn-text">Download KML</span>
         </button>
-    </div>
+    
+        <!-- New Button to Insert PDF -->
+        <button id="insert-pdf" class="sidebar-btn" aria-label="Insert PDF">
+            <i class="fas fa-file-upload"></i>
+            <span class="btn-text">Insert PDF</span>
+        </button>
+    </div>    
 
     <div class="main-content" id="main-content">
         <div class="container">
@@ -410,6 +423,136 @@
         function getPolygonGeoJSON() {
             return drawnItems.getLayers()[0].toGeoJSON();
         }
+       // Define UTM projection for Zone 43N (India)
+       proj4.defs("EPSG:32640", "+proj=utm +zone=40 +datum=WGS84 +units=m +no_defs");
+const utmToLatLon = proj4("EPSG:32640", "EPSG:4326");
+
+document.getElementById('insert-pdf').addEventListener('click', async () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/pdf';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const pdfData = await file.arrayBuffer();
+
+            const loadingTask = pdfjsLib.getDocument({ data: pdfData });
+            const pdf = await loadingTask.promise;
+            let extractedText = '';
+
+            for (let i = 0; i < pdf.numPages; i++) {
+                const page = await pdf.getPage(i + 1);
+                const textContent = await page.getTextContent();
+
+                if (textContent.items.length > 0) {
+                    textContent.items.forEach((item) => {
+                        extractedText += item.str + ' ';
+                    });
+                } else {
+                    const viewport = page.getViewport({ scale: 2 });
+                    const canvas = document.createElement('canvas');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+                    const context = canvas.getContext('2d');
+                    await page.render({ canvasContext: context, viewport }).promise;
+
+                    // 🔥 OCR with higher DPI and whitelist
+                    const { data: { text } } = await Tesseract.recognize(
+                        canvas.toDataURL(),
+                        'eng',
+                        {
+                            logger: m => console.log(m),
+                            dpi: 300,
+                            tessedit_char_whitelist: '0123456789., ',
+                            preserve_interword_spaces: 1
+                        }
+                    );
+
+                    extractedText += text + ' ';
+                }
+            }
+
+            // ✅ Log raw extracted text for debugging
+            console.log('Raw Extracted Text:', extractedText);
+
+            // ✅ Extract only NORTHING and EASTING values
+            const pattern = /(?:NO NORTHING EASTING DIST \(m\)[\s\S]*?)?\b(\d{6,9}\.\d{2}|\d{6,9})\s+(\d{6,8})/g;
+            let matches = [...extractedText.matchAll(pattern)];
+
+            console.log('Matches:', matches);
+
+            if (matches.length === 0) {
+                alert('No coordinates found.');
+                return;
+            }
+
+            const extractedCoordinates = matches.map(match => ({
+  northing: match[1],
+  easting: match[2]
+}));
+console.log(extractedCoordinates);
+
+const coordinates = [];
+
+extractedCoordinates.forEach(coord => {
+    console.log("Raw UTM:", coord);
+    
+    // Convert strings to numbers
+    let northing = parseFloat(coord.northing);
+    let easting = parseFloat(coord.easting);
+
+    // ✅ If no decimal point, divide by 100
+    if (!coord.northing.includes('.')) {
+        northing = northing / 100;
+    }
+    if (!coord.easting.includes('.')) {
+        easting = easting / 100;
+    }
+    console.log("Parsed UTM:", easting, northing);
+
+    if (!isNaN(northing) && !isNaN(easting)) {
+        try {
+            if (easting > 160000 && easting < 834000 && northing > 0 && northing < 10000000) {
+                // Define UTM projection
+                proj4.defs("EPSG:32640", "+proj=utm +zone=40 +datum=WGS84 +units=m +no_defs");
+                
+                const [lon, lat] = proj4("EPSG:32640", "EPSG:4326", [easting, northing]);
+                console.log(`Converted Lat/Lon: ${lat}, ${lon}`);
+                
+                // ✅ Push valid coordinates for polyline
+                coordinates.push([lat, lon]);
+            } else {
+                console.error("Invalid coordinates:", { northing, easting });
+            }
+        } catch (error) {
+            console.error("Conversion Error:", error);
+        }
+    } else {
+        console.warn("Invalid coordinates:", coord);
+    }
+});
+
+// ✅ Draw polyline and adjust map view
+if (coordinates.length > 1) {
+    coordinates.push(coordinates[0]); // Close the polyline
+    
+    const polyline = L.polyline(coordinates, {
+        color: 'blue',   // Polyline color
+        weight: 3,       // Line thickness
+        opacity: 0.7     // Line opacity
+    }).addTo(map);
+
+    // ✅ Fit map to polyline bounds
+    const bounds = polyline.getBounds();
+    map.fitBounds(bounds);
+}
+
+        }
+    };
+    input.click();
+});
+
+
 
         // Tab Functionality
         document.querySelectorAll('.tab-btn').forEach(button => {
