@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Satellite Map Viewer</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Sidebar Styling (unchanged) */
+        .sidebar {
+            height: 100vh;
+            width: 250px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            background-color: #1f2937;
+            padding: 20px;
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            overflow-y: auto;
+            transition: width 0.3s;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .sidebar.collapsed {
+            width: 60px;
+            padding: 40px 10px 30px 10px;
+            align-items: center;
+        }
+
+        .sidebar.collapsed .sidebar-title,
+        .sidebar.collapsed .btn-text {
+            display: none;
+        }
+
+        .sidebar-title {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #60a5fa;
+            margin-bottom: 20px;
+            text-align: left;
+            width: 100%;
+        }
+
+        .sidebar.collapsed .sidebar-title {
+            display: none;
+        }
+
+        .sidebar-btn {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #374151;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .sidebar.collapsed .sidebar-btn {
+            justify-content: center;
+            padding: 10px;
+        }
+
+        .sidebar-btn:hover {
+            background-color: #4b5563;
+        }
+
+        .sidebar-btn i {
+            margin-right: 10px;
+            font-size: 1.2rem;
+        }
+
+        .sidebar.collapsed .sidebar-btn i {
+            margin-right: 0;
+        }
+
+        .toggle-btn {
+            position: absolute;
+            top: 10px;
+            right: 0px;
+            background-color: #1f2937;
+            color: white;
+            border: none;
+            padding: 5px;
+            cursor: pointer;
+            border-radius: 0 5px 5px 0;
+        }
+
+        .main-content {
+            margin-left: 250px;
+            padding: 20px;
+            transition: margin-left 0.3s;
+        }
+
+        .main-content.expanded {
+            margin-left: 60px;
+        }
+
+        /* Map and Loading (unchanged) */
+        #map {
+            height: 60vh;
+            width: 100%;
+            border-radius: 8px;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #60a5fa;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            background-color: #fee2e2;
+            color: #dc2626;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+
+        /* Custom Control for Current Location */
+        .leaflet-control-locate {
+            background-color: #fff;
+            border-radius: 4px;
+            box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+            padding: 5px;
+            text-align: center;
+        }
+
+        .leaflet-control-locate:hover {
+            background-color: #f4f4f4;
+        }
+
+        .leaflet-control-locate i {
+            font-size: 18px;
+            color: #60a5fa;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-white">
+    <!-- Sidebar and Main Content (unchanged) -->
+    <div class="sidebar" id="sidebar">
+        <h2 class="sidebar-title">Satellite Tools</h2>
+        <button class="toggle-btn" onclick="toggleSidebar()">➤</button>
+        <button id="load-existing" class="sidebar-btn" aria-label="Load Existing Images">
+            <i class="fas fa-images"></i>
+            <span class="btn-text">Load Existing Images</span>
+        </button>
+        <button id="get-data" class="sidebar-btn" aria-label="Get Satellite Images">
+            <i class="fas fa-satellite"></i>
+            <span class="btn-text">Get Images</span>
+        </button>
+        <button id="visualize-data" class="sidebar-btn" aria-label="Generate Timelapse GIF">
+            <i class="fas fa-film"></i>
+            <span class="btn-text">Generate Timelapse GIF</span>
+        </button>
+        <button id="generate-video" class="sidebar-btn" aria-label="Generate Video">
+            <i class="fas fa-video"></i>
+            <span class="btn-text">Generate Video</span>
+        </button>
+        <button id="generate-report" class="sidebar-btn" aria-label="Generate PDF Report">
+            <i class="fas fa-file-pdf"></i>
+            <span class="btn-text">Generate PDF Report</span>
+        </button>
+        <button id="download-kml" class="sidebar-btn" aria-label="Download KML">
+            <i class="fas fa-download"></i>
+            <span class="btn-text">Download KML</span>
+        </button>
+    </div>
+
+    <div class="main-content" id="main-content">
+        <div class="container">
+            <div class="header">
+                <h1 class="text-3xl font-bold">Satellite Data Viewer</h1>
+                <p class="text-gray-400">Exploring the Earth from Above</p>
+            </div>
+
+            <div class="controls">
+                <label for="start-date" class="mr-2">Start Date:</label>
+                <input type="date" id="start-date" class="bg-gray-800 text-white p-2 rounded">
+
+                <label for="end-date" class="ml-4 mr-2">End Date:</label>
+                <input type="date" id="end-date" class="bg-gray-800 text-white p-2 rounded">
+            </div>
+
+            <div id="loading" class="hidden text-center">
+                <div class="spinner"></div>
+                <p>Processing your request... This may take a minute.</p>
+            </div>
+
+            <div id="map"></div>
+
+            <div id="media-gallery" class="mt-10">
+                <h2 class="text-2xl font-bold mb-4 text-blue-400">Media Gallery</h2>
+                <div class="tabs flex space-x-4">
+                    <button class="tab-btn active px-4 py-2 bg-blue-600 rounded" data-tab="images">Images</button>
+                    <button class="tab-btn px-4 py-2 bg-gray-700 rounded" data-tab="timelapse">Timelapse</button>
+                    <button class="tab-btn px-4 py-2 bg-gray-700 rounded" data-tab="video">Video</button>
+                    <button class="tab-btn px-4 py-2 bg-gray-700 rounded" data-tab="report">Report</button>
+                </div>
+
+                <div class="tab-content mt-4">
+                    <div id="images-tab" class="tab-pane active">
+                        <div id="image-container" class="image-container grid grid-cols-3 gap-4">
+                            <p class="text-gray-400 italic col-span-3">Select a region on the map, set the dates, then click "Get Images" to view satellite imagery.</p>
+                        </div>
+                    </div>
+
+                    <div id="timelapse-tab" class="tab-pane hidden">
+                        <div id="timelapse-container" class="media-container">
+                            <p class="text-gray-400 italic mb-4">Generate a timelapse GIF by clicking the "Generate Timelapse GIF" button.</p>
+                            <img id="timelapse-gif" src="" alt="Timelapse GIF" class="hidden mx-auto" loop="infinite">
+                            <div class="media-controls mt-4">
+                                <button id="download-gif" class="download-btn bg-blue-600 px-4 py-2 rounded" disabled>
+                                    <i class="fas fa-download"></i> Download GIF
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="video-tab" class="tab-pane hidden">
+                        <div id="video-container" class="media-container">
+                            <p class="text-gray-400 italic mb-4">Generate a video by clicking the "Generate Video" button.</p>
+                            <video id="timelapse-video" controls class="hidden mx-auto w-full max-w-2xl">
+                                <source src="" type="video/mp4">
+                                Your browser does not support the video tag.
+                            </video>
+                            <div class="media-controls mt-4">
+                                <button id="download-video" class="download-btn bg-blue-600 px-4 py-2 rounded" disabled>
+                                    <i class="fas fa-download"></i> Download MP4
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="report-tab" class="tab-pane hidden">
+                        <div id="report-container" class="media-container">
+                            <p class="text-gray-400 italic mb-4">Generate a PDF report by clicking the "Generate PDF Report" button.</p>
+                            <iframe id="pdf-viewer" src="" width="100%" height="600px" class="hidden"></iframe>
+                            <div class="media-controls mt-4">
+                                <button id="download-report" class="download-btn bg-blue-600 px-4 py-2 rounded" disabled>
+                                    <i class="fas fa-download"></i> Download PDF Report
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    <script>
+        const BASE_URL = 'http://127.0.0.1:5000'; // Configurable base URL
+
+        // Sidebar Toggle
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const mainContent = document.getElementById('main-content');
+            sidebar.classList.toggle('collapsed');
+            mainContent.classList.toggle('expanded');
+            const toggleBtn = sidebar.querySelector('.toggle-btn');
+            toggleBtn.textContent = sidebar.classList.contains('collapsed') ? '➤' : '◄';
+        }
+
+        // Map Setup
+        var map = L.map('map').setView([21.4735, 55.9754], 6); // DEFAULT OMAN
+        var baseLayers = {
+            "OpenStreetMap": L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }),
+            "Esri Satellite": L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles © Esri'
+            }),
+            "Google Hybrid": L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+                apiKey: 'YOUR_GOOGLE_MAPS_API_KEY'
+            })
+        };
+
+        L.Control.geocoder({
+            defaultMarkGeocode: true,
+            collapsed: false,
+            placeholder: "Search for a location..."
+        }).addTo(map);
+
+        L.control.layers(baseLayers, {}, { position: 'topright' }).addTo(map);
+        baseLayers["Google Hybrid"].addTo(map);
+
+        var drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+
+        var drawControl = new L.Control.Draw({
+            edit: { featureGroup: drawnItems },
+            draw: { polygon: true, marker: false, circle: false, rectangle: true, polyline: false }
+        });
+        map.addControl(drawControl);
+
+        let fetchedImages = [];
+
+        // Custom Control for Current Location
+        L.Control.Locate = L.Control.extend({
+            onAdd: function(map) {
+                var container = L.DomUtil.create('div', 'leaflet-control-locate leaflet-bar leaflet-control');
+                var button = L.DomUtil.create('a', 'leaflet-control-locate-button', container);
+                button.innerHTML = '<i class="fas fa-location-arrow"></i>';
+                button.title = 'Go to Current Location';
+                button.href = '#';
+
+                L.DomEvent.on(button, 'click', function(e) {
+                    L.DomEvent.stopPropagation(e);
+                    L.DomEvent.preventDefault(e);
+                    map.locate({ setView: true, maxZoom: 16 });
+                });
+
+                return container;
+            },
+
+            onRemove: function(map) {
+                // Nothing to do here
+            }
+        });
+
+        L.control.locate = function(opts) {
+            return new L.Control.Locate(opts);
+        };
+
+        // Add the locate control to the map
+        L.control.locate({ position: 'topright' }).addTo(map);
+
+        // Handle location found
+        map.on('locationfound', function(e) {
+            var radius = e.accuracy / 2;
+            L.marker(e.latlng).addTo(map)
+                .bindPopup('You are within ' + radius + ' meters from this point').openPopup();
+            L.circle(e.latlng, radius).addTo(map);
+        });
+
+        // Handle location error
+        map.on('locationerror', function(e) {
+            showError('Unable to find your location: ' + e.message);
+        });
+
+        map.on('draw:created', function (e) {
+            drawnItems.clearLayers();
+            var layer = e.layer;
+            drawnItems.addLayer(layer);
+            console.log("Polygon Coordinates:", layer.getLatLngs());
+        });
+
+        // Utility Functions
+        function showLoading(show) {
+            document.getElementById("loading").classList.toggle("hidden", !show);
+        }
+
+        function showError(message) {
+            const existingError = document.querySelector(".error-message");
+            if (existingError) existingError.remove();
+
+            const errorDiv = document.createElement("div");
+            errorDiv.className = "error-message";
+            errorDiv.textContent = message;
+            const controls = document.querySelector(".controls");
+            controls.parentNode.insertBefore(errorDiv, controls.nextSibling);
+        }
+
+        function validateInputs() {
+            const startDate = new Date(document.getElementById("start-date").value);
+            const endDate = new Date(document.getElementById("end-date").value);
+            if (!startDate || !endDate || endDate < startDate) {
+                showError("Please select a valid date range!");
+                return false;
+            }
+            if (drawnItems.getLayers().length === 0) {
+                showError("Please draw a polygon or rectangle on the map!");
+                return false;
+            }
+            return true;
+        }
+
+        function getPolygonGeoJSON() {
+            return drawnItems.getLayers()[0].toGeoJSON();
+        }
+
+        // Tab Functionality
+        document.querySelectorAll('.tab-btn').forEach(button => {
+            button.addEventListener('click', (e) => {
+                e.preventDefault();
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active', 'bg-blue-600'));
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.add('bg-gray-700'));
+                document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.add('hidden'));
+                document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+                button.classList.add('active', 'bg-blue-600');
+                const tabId = button.getAttribute('data-tab');
+                document.getElementById(`${tabId}-tab`).classList.add('active');
+                document.getElementById(`${tabId}-tab`).classList.remove('hidden');
+            });
+        });
+
+        // Generic Media Generation
+        async function generateMedia(type, payload, tabId, mediaElementId, downloadBtnId) {
+            showLoading(true);
+            try {
+                const response = await fetch(`${BASE_URL}/generate_${type}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error(`Server returned ${response.status}`);
+                const data = await response.json();
+                showLoading(false);
+
+                if (data.success && data[`${type}_url`]) {
+                    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active', 'bg-blue-600'));
+                    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.add('bg-gray-700'));
+                    document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.add('hidden'));
+                    document.querySelector(`[data-tab="${tabId}"]`).classList.add('active', 'bg-blue-600');
+                    document.getElementById(`${tabId}-tab`).classList.add('active');
+                    document.getElementById(`${tabId}-tab`).classList.remove('hidden');
+
+                    const mediaElement = document.getElementById(mediaElementId);
+                    mediaElement.src = `${BASE_URL}${data[`${type}_url`]}?t=${new Date().getTime()}`;
+                    mediaElement.classList.remove("hidden");
+                    document.getElementById(downloadBtnId).disabled = false;
+
+                    if (data.images) fetchedImages = data.images;
+                } else {
+                    showError(`Failed to generate ${type}.`);
+                }
+            } catch (error) {
+                showLoading(false);
+                showError(`Error generating ${type}: ${error.message}`);
+                console.error(error);
+            }
+        }
+
+        // Load Existing Images
+        async function loadExistingImages() {
+            document.getElementById("image-container").innerHTML = "";
+            showLoading(true);
+
+            try {
+                const response = await fetch(`${BASE_URL}/list_existing_images`);
+                if (!response.ok) throw new Error("Server returned " + response.status);
+                const data = await response.json();
+                showLoading(false);
+
+                if (data.images && data.images.length > 0) {
+                    fetchedImages = data.images;
+                    const currentFolderName = data.folder_name;
+
+                    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active', 'bg-blue-600'));
+                    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.add('bg-gray-700'));
+                    document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.add('hidden'));
+                    document.querySelector('[data-tab="images"]').classList.add('active', 'bg-blue-600');
+                    document.getElementById("images-tab").classList.remove('hidden');
+                    document.getElementById("images-tab").classList.add('active');
+
+                    const container = document.getElementById("image-container");
+                    container.innerHTML = "";
+
+                    data.images.forEach(imgFilename => {
+                        const imgContainer = document.createElement("div");
+                        imgContainer.className = "image-item";
+
+                        const img = document.createElement("img");
+                        const imgUrl = currentFolderName ? `${BASE_URL}/static/${currentFolderName}/${imgFilename}` : `${BASE_URL}/static/${imgFilename}`;
+                        img.src = imgUrl;
+                        img.alt = "Satellite Image " + imgFilename;
+                        img.className = "satellite-image w-full rounded";
+                        img.loading = "lazy";
+                        img.onerror = () => img.src = "path/to/error-image.png";
+
+                        const caption = document.createElement("div");
+                        caption.className = "image-caption text-center text-gray-400 mt-2";
+                        caption.textContent = imgFilename.replace(".png", "");
+
+                        imgContainer.appendChild(img);
+                        imgContainer.appendChild(caption);
+                        container.appendChild(imgContainer);
+                    });
+
+                    document.getElementById("visualize-data").disabled = false;
+                    document.getElementById("generate-video").disabled = false;
+                    document.getElementById("generate-report").disabled = false;
+                } else {
+                    showError("No existing images found in the static folder.");
+                }
+
+                if (data.additional_files && data.additional_files.timelapse_gif) {
+                    document.getElementById("timelapse-gif").src = `${BASE_URL}/static/${currentFolderName || ''}/timelapse.gif`;
+                    document.getElementById("timelapse-gif").classList.remove("hidden");
+                    document.getElementById("download-gif").disabled = false;
+                }
+
+                if (data.additional_files && data.additional_files.timelapse_video) {
+                    document.getElementById("timelapse-video").src = `${BASE_URL}/static/${currentFolderName || ''}/timelapse.mp4`;
+                    document.getElementById("timelapse-video").classList.remove("hidden");
+                    document.getElementById("download-video").disabled = false;
+                }
+            } catch (error) {
+                showLoading(false);
+                showError("Error loading images: " + error.message);
+                console.error(error);
+            }
+        }
+
+        // Event Listeners
+        document.getElementById("load-existing").addEventListener("click", loadExistingImages);
+
+        document.getElementById("get-data").addEventListener("click", async () => {
+            if (!validateInputs()) return;
+
+            const startDate = document.getElementById("start-date").value;
+            const endDate = document.getElementById("end-date").value;
+            const polygon = getPolygonGeoJSON();
+
+            showLoading(true);
+            document.getElementById("image-container").innerHTML = "";
+
+            try {
+                const response = await fetch(`${BASE_URL}/get_images`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        polygon: polygon.geometry.coordinates,
+                        start_date: startDate,
+                        end_date: end_date
+                    })
+                });
+                if (!response.ok) throw new Error("Server returned " + response.status);
+                const data = await response.json();
+                showLoading(false);
+
+                if (data.images && data.images.length > 0) {
+                    fetchedImages = data.images;
+                    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active', 'bg-blue-600'));
+                    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.add('bg-gray-700'));
+                    document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.add('hidden'));
+                    document.querySelector('[data-tab="images"]').classList.add('active', 'bg-blue-600');
+                    document.getElementById("images-tab").classList.remove('hidden');
+                    document.getElementById("images-tab").classList.add('active');
+
+                    const container = document.getElementById("image-container");
+                    container.innerHTML = "";
+
+                    data.images.forEach(imgFilename => {
+                        const imgContainer = document.createElement("div");
+                        imgContainer.className = "image-item";
+
+                        const img = document.createElement("img");
+                        img.src = `${BASE_URL}/static/${imgFilename}`;
+                        img.alt = "Satellite Image " + imgFilename;
+                        img.className = "satellite-image w-full rounded";
+                        img.loading = "lazy";
+
+                        const caption = document.createElement("div");
+                        caption.className = "image-caption text-center text-gray-400 mt-2";
+                        caption.textContent = imgFilename.replace(".png", "");
+
+                        imgContainer.appendChild(img);
+                        imgContainer.appendChild(caption);
+                        container.appendChild(imgContainer);
+                    });
+                } else {
+                    showError("No images found for the given date range and area.");
+                }
+            } catch (error) {
+                showLoading(false);
+                showError("Error fetching images: " + error.message);
+                console.error(error);
+            }
+        });
+
+        document.getElementById("visualize-data").addEventListener("click", () => {
+            const payload = {
+                polygon: getPolygonGeoJSON().geometry.coordinates,
+                start_date: document.getElementById("start-date").value,
+                end_date: document.getElementById("end-date").value,
+                ...(fetchedImages.length > 0 && { existing_images: fetchedImages })
+            };
+            if (validateInputs() || fetchedImages.length > 0) {
+                generateMedia("timelapse", payload, "timelapse", "timelapse-gif", "download-gif");
+            }
+        });
+
+        document.getElementById("generate-video").addEventListener("click", () => {
+            const payload = {
+                polygon: getPolygonGeoJSON().geometry.coordinates,
+                start_date: document.getElementById("start-date").value,
+                end_date: document.getElementById("end-date").value,
+                ...(fetchedImages.length > 0 && { existing_images: fetchedImages })
+            };
+            if (validateInputs() || fetchedImages.length > 0) {
+                generateMedia("video", payload, "video", "timelapse-video", "download-video");
+            }
+        });
+
+        document.getElementById("generate-report").addEventListener("click", () => {
+            const payload = {
+                polygon: getPolygonGeoJSON().geometry.coordinates,
+                start_date: document.getElementById("start-date").value,
+                end_date: document.getElementById("end-date").value,
+                ...(fetchedImages.length > 0 && { existing_images: fetchedImages })
+            };
+            if (validateInputs() || fetchedImages.length > 0) {
+                generateMedia("report", payload, "report", "pdf-viewer", "download-report");
+            }
+        });
+
+        document.getElementById("download-gif").addEventListener("click", () => window.open(`${BASE_URL}/download_media?type=gif`, "_blank"));
+        document.getElementById("download-video").addEventListener("click", () => window.open(`${BASE_URL}/download_media?type=video`, "_blank"));
+        document.getElementById("download-report").addEventListener("click", () => window.open(`${BASE_URL}/download_report`, "_blank"));
+
+        document.getElementById("download-kml").addEventListener("click", async () => {
+            if (!validateInputs()) return;
+
+            const polygon = getPolygonGeoJSON();
+            showLoading(true);
+
+            try {
+                const response = await fetch(`${BASE_URL}/download_kml`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ polygon: polygon.geometry.coordinates })
+                });
+                if (!response.ok) throw new Error("Server returned " + response.status);
+                const blob = await response.blob();
+                showLoading(false);
+
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.style.display = "none";
+                a.href = url;
+                a.download = "polygon.kml";
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);    
+            } catch (error) {
+                showLoading(false);
+                showError("Error downloading KML: " + error.message);
+                console.error(error);
+            }
+        });
+
+        // Initial Load
+        document.addEventListener('DOMContentLoaded', loadExistingImages);
+    </script>
+</body>
+
+</html> 
